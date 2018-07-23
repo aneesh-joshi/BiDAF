@@ -418,37 +418,37 @@ class DRMM_TKS(utils.SaveLoad):
 
         batch_q, batch_d, batch_l = [], [], []
 
-        i = 0
-
-        for q, doc, label in zip(self.queries, self.docs, self.labels):
-            train_queries.append(self._make_indexed(q))
-            for d, l  in zip(doc, label):
-                train_docs.append(self._make_indexed(d))
-                
-                if label == 0:
-                    train_labels.append([1, 0])
+        while True:
+            i = 0
+            for q, doc, label in zip(self.queries, self.docs, self.labels):
+                train_queries.append(self._make_indexed(q))
+                for d, l  in zip(doc, label):
+                    train_docs.append(self._make_indexed(d))
+                    
+                    if label == 0:
+                        train_labels.append([1, 0])
+                    else:
+                        train_labels.append([0, 1])
+                if len(train_docs) <= self.max_passage_sents:
+                    while(len(train_docs) != self.max_passage_sents):
+                        train_docs.append([self.pad_word_index]*self.text_maxlen)
+                        train_labels.append([1, 0])
                 else:
-                    train_labels.append([0, 1])
-            if len(train_docs) <= self.max_passage_sents:
-                while(len(train_docs) != self.max_passage_sents):
-                    train_docs.append([self.pad_word_index]*self.text_maxlen)
-                    train_labels.append([1, 0])
-            else:
-                raise ValueError('max_passage_sents is less than ' + str(len(train_docs)))
+                    raise ValueError('max_passage_sents is less than ' + str(len(train_docs)))
 
-            batch_q.append(train_queries)
-            batch_d.append(train_docs)
-            batch_l.append(train_labels)
-            i += 1
+                batch_q.append(train_queries)
+                batch_d.append(train_docs)
+                batch_l.append(train_labels)
+                i += 1
 
-            train_queries, train_docs, train_labels = [], [], []
+                train_queries, train_docs, train_labels = [], [], []
 
-            if i%batch_size == 0 and i!=0:
-                a, b, c = np.array(batch_q), np.array(batch_d), np.array(batch_l)
-                a = a.squeeze()
-                b = b.transpose((0,2,1))                
-                yield ({'question_input':a, 'passage_input':b}, c )
-                batch_q, batch_d, batch_l = [], [], []
+                if i%batch_size == 0 and i!=0:
+                    a, b, c = np.array(batch_q), np.array(batch_d), np.array(batch_l)
+                    a = a.squeeze()
+                    b = b.transpose((0,2,1))                
+                    yield ({'question_input':a, 'passage_input':b}, c )
+                    batch_q, batch_d, batch_l = [], [], []
 
 
 

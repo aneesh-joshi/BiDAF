@@ -375,10 +375,12 @@ class DRMM_TKS(utils.SaveLoad):
             indexed_sent.append(self.word2index[word])
 
         if len(indexed_sent) > self.text_maxlen:
-            raise ValueError(
-                "text_maxlen: %d isn't big enough. Error at sentence of length %d."
-                "Sentence is %s" % (self.text_maxlen, len(sentence), sentence)
-            )
+            indexed_sent = indexed_sent[:self.text_maxlen]
+
+            # print(
+            #     "text_maxlen: %d isn't big enough. Error at sentence of length %d."
+            #     "Sentence is %s" % (self.text_maxlen, len(sentence), sentence)
+            # )
         indexed_sent = indexed_sent + [self.pad_word_index] * (self.text_maxlen - len(indexed_sent))
         return indexed_sent
 

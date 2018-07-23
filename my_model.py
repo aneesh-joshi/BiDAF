@@ -456,7 +456,7 @@ class DRMM_TKS(utils.SaveLoad):
 
     def train(self, queries, docs, labels, word_embedding=None,
               text_maxlen=200, normalize_embeddings=True, epochs=10, unk_handle_method='zero',
-              validation_data=None, topk=20, target_mode='ranking', verbose=1, batch_size=5, steps_per_epoch=87):
+              validation_data=None, topk=20, target_mode='ranking', verbose=1, batch_size=5, steps_per_epoch=86):
         """Trains a DRMM_TKS model using specified parameters
 
         This method is called from on model initialization if the data is provided.
@@ -599,10 +599,11 @@ class DRMM_TKS(utils.SaveLoad):
                     translated_sentence.append(self.unk_word_index)
                     n_skipped_words += 1
             if len(sentence) > self.text_maxlen:
-                logger.info(
-                    "text_maxlen: %d isn't big enough. Error at sentence of length %d."
-                    "Sentence is %s", self.text_maxlen, len(sentence), str(sentence)
-                )
+                translated_sentence = translated_sentence[:self.text_maxlen]
+                # logger.info(
+                #     "text_maxlen: %d isn't big enough. Error at sentence of length %d."
+                #     "Sentence is %s", self.text_maxlen, len(sentence), str(sentence)
+                # )
             translated_sentence = translated_sentence + \
                 (self.text_maxlen - len(sentence)) * [self.pad_word_index]
             translated_data.append(np.array(translated_sentence))

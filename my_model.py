@@ -613,7 +613,7 @@ class DRMM_TKS(utils.SaveLoad):
         )
         return np.array(translated_data)
 
-    def predict(self, queries, docs):
+    def predict(self, queries, docs, labels):
         """Predcits the similarity between a query-document pair
         based on the trained DRMM TKS model
 
@@ -641,12 +641,49 @@ class DRMM_TKS(utils.SaveLoad):
          [0.99258184]
          [0.9960481 ]]
         """
+        train_queries = []
+        train_docs = []
+        train_labels = []
+
+        batch_q, batch_d, batch_l = [], [], []
+
+        i = 0
+        for q, doc, label in zip(queries, docs, labels):
+            train_queries.append(self._make_indexed(q))
+            for d, l  in zip(doc, label):
+                train_docs.append(self._make_indexed(d))
+                
+                if label == 0:
+                    train_labels.append([1, 0])
+                else:
+                    train_labels.append([0, 1])
+            if len(train_docs) <= self.max_passage_sents:
+                while(len(train_docs) != self.max_passage_sents):
+                    train_docs.append([self.pad_word_index]*self.text_maxlen)
+                    train_labels.append([1, 0])
+            else:
+                raise ValueError('max_passage_sents is less than ' + str(len(train_docs)))
+
+            batch_q.append(train_queries)
+            batch_d.append(train_docs)
+            batch_l.append(train_labels)
+            i += 1
+
+            train_queries, train_docs, train_labels = [], [], []
+
+        a, b, c = np.array(batch_q), np.array(batch_d), np.array(batch_l)
+        a = a.squeeze()
+        b = b.transpose((0,2,1))                
+        print(self.model.evaluate({'question_input':a, 'passage_input':b}, c))
+        self.model.predict({'question_input':a, 'passage_input':b})
+        batch_q, batch_d, batch_l = [], [], []
+
 
         long_query_list = []
         long_doc_list = []
         for query, doc in zip(queries, docs):
+            long_query_list.append(query)
             for d in doc:
-                long_query_list.append(query)
                 long_doc_list.append(d)
 
         indexed_long_query_list = self._translate_user_data(long_query_list)
@@ -677,6 +714,7 @@ class DRMM_TKS(utils.SaveLoad):
         long_label_list = []
         long_query_list = []
         doc_lens = []
+
         for query, doc, label in zip(queries, docs, labels):
             i = 0
             for d, l in zip(doc, label):

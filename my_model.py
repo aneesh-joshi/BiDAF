@@ -372,7 +372,10 @@ class DRMM_TKS(utils.SaveLoad):
 
         indexed_sent = []
         for word in sentence:
-            indexed_sent.append(self.word2index[word])
+            if word in self.word2index:
+                indexed_sent.append(self.word2index[word])
+            else:
+                indexed_sent.append(self.unk_word_index)
 
         if len(indexed_sent) > self.text_maxlen:
             indexed_sent = indexed_sent[:self.text_maxlen]
@@ -456,7 +459,7 @@ class DRMM_TKS(utils.SaveLoad):
 
     def train(self, queries, docs, labels, word_embedding=None,
               text_maxlen=200, normalize_embeddings=True, epochs=10, unk_handle_method='zero',
-              validation_data=None, topk=20, target_mode='ranking', verbose=1, batch_size=5, steps_per_epoch=86):
+              validation_data=None, topk=20, target_mode='ranking', verbose=1, batch_size=5, steps_per_epoch=1):
         """Trains a DRMM_TKS model using specified parameters
 
         This method is called from on model initialization if the data is provided.

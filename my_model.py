@@ -700,6 +700,18 @@ class DRMM_TKS(utils.SaveLoad):
 
         return predictions
 
+    def tiny_predict(self, q, d):
+        q = self._make_indexed(q)
+        train_docs = []
+        train_docs.append(self._make_indexed(d))
+
+        if len(train_docs) <= self.max_passage_sents:
+            while(len(train_docs) != self.max_passage_sents):
+                train_docs.append([self.pad_word_index]*self.text_maxlen)
+        
+        preds = self.model.predict({'question_input':a, 'passage_input':b})
+
+
     def evaluate(self, queries, docs, labels):
         """Evaluates the model and provides the results in terms of metrics (MAP, nDCG)
         This should ideally be called on the test set.

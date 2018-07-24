@@ -164,27 +164,32 @@ if __name__ == '__main__':
     d_test_iterable = MyWikiIterable('doc', os.path.join('experimental_data', 'WikiQACorpus', 'WikiQA-test.tsv'))
     l_test_iterable = MyWikiIterable('label', os.path.join('experimental_data', 'WikiQACorpus', 'WikiQA-test.tsv'))
 
-    # q_lens, doc_lens, d_lens = [], [], []
-    # for q, doc in zip(q_iterable, d_iterable):
-    #     q_lens.append(len(q))
-    #     doc_lens.append(len(doc))
-    #     for d in doc:
-    #         d_lens.append(len(d))
-    # print(max(q_lens), max(doc_lens), max(d_lens))
+    
+    q_iterable = MyWikiIterable('query', os.path.join('experimental_data', 'SQUAD-T-QA.tsv'))
+    d_iterable = MyWikiIterable('doc', os.path.join('experimental_data', 'SQUAD-T-QA.tsv'))
+    l_iterable = MyWikiIterable('label', os.path.join('experimental_data', 'SQUAD-T-QA.tsv'))    
+
+    q_lens, doc_lens, d_lens = [], [], []
+    for q, doc in zip(q_iterable, d_iterable):
+        q_lens.append(len(q))
+        doc_lens.append(len(doc))
+        for d in doc:
+            d_lens.append(len(d))
+    print(max(q_lens), max(doc_lens), max(d_lens))
 
 
-    # import numpy as np
+    import numpy as np
 
-    # q_lens = np.array(q_lens)
-    # d_lens = np.array(d_lens)
-    # doc_lens = np.array(doc_lens)
+    q_lens = np.array(q_lens)
+    d_lens = np.array(d_lens)
+    doc_lens = np.array(doc_lens)
 
-    # print(np.mean(q_lens), np.mean(doc_lens), np.mean(d_lens))
+    print(np.mean(q_lens), np.mean(doc_lens), np.mean(d_lens))
 
 
     # exit()
 
-    kv_model = api.load('glove-wiki-gigaword-50')
-    model = DRMM_TKS(q_iterable, d_iterable, l_iterable, kv_model, text_maxlen=40, unk_handle_method='zero', epochs=2)
-    model.predict(q_test_iterable, d_test_iterable, l_test_iterable)
+    # kv_model = api.load('glove-wiki-gigaword-50')
+    # model = DRMM_TKS(q_iterable, d_iterable, l_iterable, kv_model, text_maxlen=40, unk_handle_method='zero', epochs=2)
+    # model.predict(q_test_iterable, d_test_iterable, l_test_iterable)
 

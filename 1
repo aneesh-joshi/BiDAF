@@ -459,7 +459,7 @@ class DRMM_TKS(utils.SaveLoad):
 
     def train(self, queries, docs, labels, word_embedding=None,
               text_maxlen=200, normalize_embeddings=True, epochs=10, unk_handle_method='zero',
-              validation_data=None, topk=20, target_mode='ranking', verbose=1, batch_size=5, steps_per_epoch=86):
+              validation_data=None, topk=20, target_mode='ranking', verbose=1, batch_size=5, steps_per_epoch=1):
         """Trains a DRMM_TKS model using specified parameters
 
         This method is called from on model initialization if the data is provided.
@@ -709,18 +709,6 @@ class DRMM_TKS(utils.SaveLoad):
         return predictions
         '''
 
-    def tiny_predict(self, q, d):
-        q = self._make_indexed(q)
-        train_docs = []
-        train_docs.append(self._make_indexed(d))
-
-        if len(train_docs) <= self.max_passage_sents:
-            while(len(train_docs) != self.max_passage_sents):
-                train_docs.append([self.pad_word_index]*self.text_maxlen)
-        
-        preds = self.model.predict({'question_input':a, 'passage_input':b})
-
-
     def evaluate(self, queries, docs, labels):
         """Evaluates the model and provides the results in terms of metrics (MAP, nDCG)
         This should ideally be called on the test set.
@@ -903,18 +891,13 @@ class DRMM_TKS(utils.SaveLoad):
         return model
 
     def tiny_predict(self, q, d):
-        q = [self._make_indexed(q)]
+        q = self._make_indexed(q)
         train_docs = []
         train_docs.append(self._make_indexed(d))
 
         if len(train_docs) <= self.max_passage_sents:
             while(len(train_docs) != self.max_passage_sents):
                 train_docs.append([self.pad_word_index]*self.text_maxlen)
-        q = np.array(q).reshape((1, self.text_maxlen))
-        train_docs = np.array(train_docs).reshape((1, self.text_maxlen, self.max_passage_sents))
-        #print(q, q.shape)
-        #print(train_docs, train_docs.shape) 
-        # q = q.reshape((self.text_maxlen))
-        preds = self.model.predict(x={'question_input':q,  'passage_input':train_docs})
-        #print(preds)
-        return preds[0][0][1]
+        
+        preds = self.model.predict({'question_input':np.array(q), 'passage_input':np.array(train_docs)})
+        return preds

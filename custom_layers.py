@@ -408,8 +408,6 @@ class Max(MaskedLayer):
 
 from typing import List, Tuple
 
-
-
 class ComplexConcat(MaskedLayer):
     """
     This ``Layer`` does ``K.concatenate()`` on a collection of tensors, but

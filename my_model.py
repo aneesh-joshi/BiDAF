@@ -449,7 +449,7 @@ class DRMM_TKS(utils.SaveLoad):
                 if i%batch_size == 0 and i!=0:
                     a, b, c = np.array(batch_q), np.array(batch_d), np.array(batch_l)
                     a = a.squeeze()
-                    b = b.transpose((0,2,1))                
+                    b = b.reshape((self.max_passage_sents*self.text_maxlen))               
                     yield ({'question_input':a, 'passage_input':b}, c )
                     batch_q, batch_d, batch_l = [], [], []
 
@@ -833,71 +833,100 @@ class DRMM_TKS(utils.SaveLoad):
         num_hidden_ending_bidir_layers = 2
         embedding_dim = 100
 
+        max_passage_words = num_passage_words*max_passage_sents
+
+        indexed_passage = indexed_passage.reshape(2, max_passage_words)
+
+        print(indexed_passage.shape)
+        print(indexed_question.shape)
+        print(y.shape)
+
+
+
         question_input = Input(shape=(num_question_words,), dtype='int32', name="question_input")
-        passage_input = Input(shape=(num_passage_words, max_passage_sents), dtype='int32', name="passage_input")
+        passage_input = Input(shape=(max_passage_words,), dtype='int32', name="passage_input")
 
-
-        embedding_layer = Embedding(self.embedding_matrix.shape[0], self.embedding_dim,
-                              weights=[self.embedding_matrix], trainable=embed_trainable)
+        embedding_layer = Embedding(input_dim=70, output_dim=embedding_dim)
 
 
 
-        question_embedding = embedding_layer(question_input)
-        passage_embedding = embedding_layer(passage_input)  # (2, 5, 7, 100)
+        question_embedding = embedding_layer(question_input)  # (None, num_question_words, embedding_dim)
+        passage_embedding = embedding_layer(passage_input)  # (None, num_passage_words*max_passage_sents, embedding_dim)
+
+        # masking_layer = Masking(mask_value=69)
+        # question_embedding = masking_layer(question_embedding)
+        # passage_embedding = masking_layer(passage_embedding)
 
         for i in range(num_highway_layers):
             highway_layer = Highway(activation=highway_activation, name='highway_{}'.format(i))
+            
             question_layer = TimeDistributed(highway_layer, name=highway_layer.name + "_qtd")
             question_embedding = question_layer(question_embedding)
+
             passage_layer = TimeDistributed(highway_layer, name=highway_layer.name + "_ptd")
             passage_embedding = passage_layer(passage_embedding)
 
 
-        passage_bidir_encoder = TimeDistributed(Bidirectional(LSTM(embedding_dim, return_sequences=True,
-                                                                   name='PassageBidirEncoder'), merge_mode='concat'))
-        question_bidir_encoder = Bidirectional(LSTM(embedding_dim, return_sequences=True, name='QuestionBidirEncoder'), merge_mode='concat')
+        passage_bidir_encoder = Bidirectional(LSTM(n_encoder_hidden_nodes, return_sequences=True,
+                                                                   name='PassageBidirEncoder'), merge_mode='concat')
+        # question_bidir_encoder = Bidirectional(LSTM(n_encoder_hidden_nodes, return_sequences=True, name='QuestionBidirEncoder'), merge_mode='concat')
 
         encoded_passage = passage_bidir_encoder(passage_embedding)
-        encoded_question = question_bidir_encoder(question_embedding)
+        encoded_question = passage_bidir_encoder(question_embedding)
 
-        encoded_passage = Reshape((num_passage_words * max_passage_sents, embedding_dim * 2))(encoded_passage)
 
-        matrix_attention_layer = MatrixAttention()
-
+        # PART 2:
+        # Now we compute a similarity between the passage words and the question words, and
+        # normalize the matrix in a couple of different ways for input into some more layers.
+        matrix_attention_layer = MatrixAttention(name='passage_question_similarity')
+        # Shape: (batch_size, num_passage_words, num_question_words)
         passage_question_similarity = matrix_attention_layer([encoded_passage, encoded_question])
-        passage_question_attention = MaskedSoftmax()(passage_question_similarity)
 
+        # Shape: (batch_size, num_passage_words, num_question_words), normalized over question
+        # words for each passage word.
+        passage_question_attention = MaskedSoftmax()(passage_question_similarity)
+        # Shape: (batch_size, num_passage_words, embedding_dim * 2)
         weighted_sum_layer = WeightedSum(name="passage_question_vectors", use_masking=False)
         passage_question_vectors = weighted_sum_layer([encoded_question, passage_question_attention])
 
+        # Min's paper finds, for each document word, the most similar question word to it, and
+        # computes a single attention over the whole document using these max similarities.
+        # Shape: (batch_size, num_passage_words)
         question_passage_similarity = Max(axis=-1)(passage_question_similarity)
+        # Shape: (batch_size, num_passage_words)
         question_passage_attention = MaskedSoftmax()(question_passage_similarity)
-
+        # Shape: (batch_size, embedding_dim * 2)
         weighted_sum_layer = WeightedSum(name="question_passage_vector", use_masking=False)
         question_passage_vector = weighted_sum_layer([encoded_passage, question_passage_attention])
 
-
+        # Then he repeats this question/passage vector for every word in the passage, and uses it
+        # as an additional input to the hidden layers above.
         repeat_layer = RepeatLike(axis=1, copy_from_axis=1)
         # Shape: (batch_size, num_passage_words, embedding_dim * 2)
         tiled_question_passage_vector = repeat_layer([question_passage_vector, encoded_passage])
 
+        # Shape: (batch_size, num_passage_words, embedding_dim * 8)
         complex_concat_layer = ComplexConcat(combination='1,2,1*2,1*3', name='final_merged_passage')
         final_merged_passage = complex_concat_layer([encoded_passage,
-                                                             passage_question_vectors,
-                                                             tiled_question_passage_vector])
+                                                     passage_question_vectors,
+                                                     tiled_question_passage_vector])
 
-        final_merged_passage = Reshape((num_passage_words, max_passage_sents, embedding_dim*8))(final_merged_passage)
-
+        # PART 3:
+        # Having computed a combined representation of the document that includes attended question
+        # vectors, we'll pass this through a few more bi-directional encoder layers, then predict
+        # the span_begin word.  Hard to find a good name for this; Min calls this part of the
+        # network the "modeling layer", so we'll call this the `modeled_passage`.
         modeled_passage = final_merged_passage
-
         for i in range(num_hidden_ending_bidir_layers):
-            hidden_layer = TimeDistributed(Bidirectional(LSTM(embedding_dim, return_sequences=True, name="hidden_seq2seq_{}".format(i)), merge_mode='concat'))
+            hidden_layer = Bidirectional(LSTM(n_encoder_hidden_nodes, return_sequences=True, name='EndingBiDirEncoder_{}'.format(i)), merge_mode='concat')
             modeled_passage = hidden_layer(modeled_passage)
 
-        # -----------------------------------------------------------------------------
-
+        # To predict the span word, we pass the merged representation through a Dense layer without
+        # output size 1 (basically a dot product of a vector of weights and the passage vectors),
+        # then do a softmax to get a position.
         span_begin_input = Concatenate()([final_merged_passage, modeled_passage])
-        maxxed = Max(1)(span_begin_input)
+        span_begin_input = Reshape((max_passage_sents, num_passage_words, -1))(span_begin_input)
+        maxxed = Max(axis=-1)(span_begin_input)
         prediction = Dense(2, activation='softmax')(maxxed)
 
         model = Model(inputs=[question_input, passage_input], outputs=[prediction])

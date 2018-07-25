@@ -285,16 +285,22 @@ if __name__ == '__main__':
     # exit()
 
     kv_model = api.load('glove-wiki-gigaword-50')
-    model = DRMM_TKS(q_iterable, d_iterable, l_iterable, kv_model, text_maxlen=51, unk_handle_method='zero', epochs=2, batch_size=10)
-    model.predict(q_test_iterable, d_test_iterable, l_test_iterable)
-    print(model.tiny_predict('Hello there', 'general kenobi'))
+    model = DRMM_TKS(q_iterable, d_iterable, l_iterable, kv_model, text_maxlen=51, unk_handle_method='zero', epochs=3, batch_size=20)
+    #model.predict(q_test_iterable, d_test_iterable, l_test_iterable)
+    print('Hello there result: ', model.tiny_predict('Hello there', 'general kenobi'))
+    print('Hello there batch: ', model.batch_tiny_predict('Hello there', ['gengeral kenowbi', 'i am groot', 'I dont wear boot']))
     queries, doc_group, label_group, query_ids, doc_id_group = MyOtherWikiIterable(os.path.join('experimental_data', 'WikiQACorpus', 'WikiQA-test.tsv')).get_stuff()
+    i=0
 
     with open('jpred', 'w') as f:
         for q, doc, labels, q_id, d_ids in zip(queries, doc_group, label_group, query_ids, doc_id_group):
-            for d, l, d_id in zip(doc, labels, d_ids):
-                my_score = str(model.tiny_predict(q,d))
-                f.write(q_id + '\t' + 'Q0' + '\t' + str(d_id) + '\t' + '99' + '\t' + my_score + '\t' + 'STANDARD' + '\n')
+            batch_score = model.batch_tiny_predict(q, doc)
+            for d, l, d_id, bscore in zip(doc, labels, d_ids, batch_score):
+                # my_score = str(model.tiny_predict(q,d))
+                my_score = bscore[1]
+                print(i, my_score)
+                i += 1
+                f.write(q_id + '\t' + 'Q0' + '\t' + str(d_id) + '\t' + '99' + '\t' + str(my_score) + '\t' + 'STANDARD' + '\n')
     print("Prediction done. Saved as %s" % 'jpred')
 
     with open('qrels', 'w') as f:

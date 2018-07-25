@@ -449,7 +449,7 @@ class DRMM_TKS(utils.SaveLoad):
                 if i%batch_size == 0 and i!=0:
                     a, b, c = np.array(batch_q), np.array(batch_d), np.array(batch_l)
                     a = a.squeeze()
-                    b = b.reshape((self.max_passage_sents*self.text_maxlen))               
+                    b = b.reshape((self.batch_size, self.max_passage_sents*self.text_maxlen))               
                     yield ({'question_input':a, 'passage_input':b}, c )
                     batch_q, batch_d, batch_l = [], [], []
 
@@ -679,7 +679,7 @@ class DRMM_TKS(utils.SaveLoad):
 
         a, b, c = np.array(batch_q), np.array(batch_d), np.array(batch_l)
         a = a.squeeze()
-        b = b.transpose((0,2,1))                
+        b = b.reshape((-1, self.max_passage_sents*self.text_maxlen))                
         print(self.model.evaluate({'question_input':a, 'passage_input':b}, c))
         preds = self.model.predict({'question_input':a, 'passage_input':b})
         final_preds = []
@@ -832,22 +832,16 @@ class DRMM_TKS(utils.SaveLoad):
         highway_activation = 'relu'
         num_hidden_ending_bidir_layers = 2
         embedding_dim = 100
-
+        n_encoder_hidden_nodes = 100
         max_passage_words = num_passage_words*max_passage_sents
-
-        indexed_passage = indexed_passage.reshape(2, max_passage_words)
-
-        print(indexed_passage.shape)
-        print(indexed_question.shape)
-        print(y.shape)
 
 
 
         question_input = Input(shape=(num_question_words,), dtype='int32', name="question_input")
         passage_input = Input(shape=(max_passage_words,), dtype='int32', name="passage_input")
 
-        embedding_layer = Embedding(input_dim=70, output_dim=embedding_dim)
-
+        embedding_layer = Embedding(self.embedding_matrix.shape[0], self.embedding_dim,
+                              weights=[self.embedding_matrix], trainable=embed_trainable)
 
 
         question_embedding = embedding_layer(question_input)  # (None, num_question_words, embedding_dim)
@@ -941,10 +935,53 @@ class DRMM_TKS(utils.SaveLoad):
             while(len(train_docs) != self.max_passage_sents):
                 train_docs.append([self.pad_word_index]*self.text_maxlen)
         q = np.array(q).reshape((1, self.text_maxlen))
-        train_docs = np.array(train_docs).reshape((1, self.text_maxlen, self.max_passage_sents))
+        train_docs = np.array(train_docs).reshape((1, self.text_maxlen*self.max_passage_sents))
         #print(q, q.shape)
         #print(train_docs, train_docs.shape) 
         # q = q.reshape((self.text_maxlen))
         preds = self.model.predict(x={'question_input':q,  'passage_input':train_docs})
         #print(preds)
         return preds[0][0][1]
+
+
+    def batch_tiny_predict(self, q, doc):
+        q = [self._make_indexed(q)]
+        train_docs = []
+        for d in doc:
+            train_docs.append(self._make_indexed(d))
+
+        d_len = len(train_docs)
+
+        if len(train_docs) <= self.max_passage_sents:
+            while(len(train_docs) != self.max_passage_sents):
+                train_docs.append([self.pad_word_index]*self.text_maxlen)
+        q = np.array(q).reshape((1, self.text_maxlen))
+        train_docs = np.array(train_docs).reshape((1, self.text_maxlen*self.max_passage_sents))
+        #print(q, q.shape)
+        #print(train_docs, train_docs.shape) 
+        # q = q.reshape((self.text_maxlen))
+        preds = self.model.predict(x={'question_input':q,  'passage_input':train_docs})
+        #print(preds)
+        return preds[0][:d_len]
+   
+    '''
+    def true_batch_tiny_predict(self, queries, docs, batch_size):
+        for query in queries:
+        q = [self._make_indexed(q)]
+        train_docs = []
+        for d in doc:
+            train_docs.append(self._make_indexed(d))
+
+        d_len = len(train_docs)
+
+        if len(train_docs) <= self.max_passage_sents:
+            while(len(train_docs) != self.max_passage_sents):
+                train_docs.append([self.pad_word_index]*self.text_maxlen)
+        q = np.array(q).reshape((1, self.text_maxlen))
+        train_docs = np.array(train_docs).reshape((1, self.text_maxlen*self.max_passage_sents))
+        #print(q, q.shape)
+        #print(train_docs, train_docs.shape) 
+        # q = q.reshape((self.text_maxlen))
+        preds = self.model.predict(x={'question_input':q,  'passage_input':train_docs})
+        #print(preds)
+        return preds[0][:d_len]'''

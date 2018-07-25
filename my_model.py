@@ -139,7 +139,7 @@ class DRMM_TKS(utils.SaveLoad):
 
     def __init__(self, queries=None, docs=None, labels=None, word_embedding=None,
                  text_maxlen=200, normalize_embeddings=True, epochs=10, unk_handle_method='random',
-                 validation_data=None, topk=50, target_mode='ranking', verbose=1):
+                 validation_data=None, topk=50, target_mode='ranking', verbose=1, batch_size=10):
         """Initializes the model and trains it
 
         Parameters
@@ -209,7 +209,7 @@ class DRMM_TKS(utils.SaveLoad):
         self.verbose = verbose
         self.first_train = True  # Whether the model has been trained before
         self.needs_vocab_build = True
-
+        self.batch_size = batch_size
         self.max_passage_sents = 30
 
         # These functions have been defined outside the class and set as attributes here
@@ -498,7 +498,7 @@ class DRMM_TKS(utils.SaveLoad):
 
         self.pair_list = self._get_pair_list(self.queries, self.docs, self.labels, self._make_indexed, is_iterable)
         if is_iterable:
-            train_generator = self.new_full_batch_iter(10)
+            train_generator = self.new_full_batch_iter(self.batch_size)
         else:
             raise ValueError('Needs to be iterable')
             X1_train, X2_train, y_train = self._get_full_batch()
@@ -512,8 +512,9 @@ class DRMM_TKS(utils.SaveLoad):
         if self.first_train:
             # The settings below should be set only once
             self.model = self._get_keras_model()
+            from keras.optimizers import Adadelta
 
-            self.model.compile(optimizer='adam', loss='categorical_crossentropy')
+            self.model.compile(optimizer=Adadelta(lr=0.5, decay=0.999), loss='categorical_crossentropy')
 
             # optimizer = 'adam'
             # optimizer = 'adadelta'

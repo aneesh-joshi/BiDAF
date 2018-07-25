@@ -285,10 +285,11 @@ if __name__ == '__main__':
     # exit()
 
     kv_model = api.load('glove-wiki-gigaword-50')
-    model = DRMM_TKS(q_iterable, d_iterable, l_iterable, kv_model, text_maxlen=40, unk_handle_method='zero', epochs=2)
-    #model.predict(q_test_iterable, d_test_iterable, l_test_iterable)
-    #print(model.tiny_predict('Hello there', 'general kenobi'))
+    model = DRMM_TKS(q_iterable, d_iterable, l_iterable, kv_model, text_maxlen=51, unk_handle_method='zero', epochs=2, batch_size=10)
+    model.predict(q_test_iterable, d_test_iterable, l_test_iterable)
+    print(model.tiny_predict('Hello there', 'general kenobi'))
     queries, doc_group, label_group, query_ids, doc_id_group = MyOtherWikiIterable(os.path.join('experimental_data', 'WikiQACorpus', 'WikiQA-test.tsv')).get_stuff()
+
     with open('jpred', 'w') as f:
         for q, doc, labels, q_id, d_ids in zip(queries, doc_group, label_group, query_ids, doc_id_group):
             for d, l, d_id in zip(doc, labels, d_ids):
@@ -296,4 +297,9 @@ if __name__ == '__main__':
                 f.write(q_id + '\t' + 'Q0' + '\t' + str(d_id) + '\t' + '99' + '\t' + my_score + '\t' + 'STANDARD' + '\n')
     print("Prediction done. Saved as %s" % 'jpred')
 
+    with open('qrels', 'w') as f:
+        for q, doc, labels, q_id, d_ids in zip(queries, doc_group, label_group, query_ids, doc_id_group):
+            for d, l, d_id in zip(doc, labels, d_ids):
+                f.write(q_id + '\t' +  '0' + '\t' +  str(d_id) + '\t' + str(l) + '\n')
+    print("qrels done. Saved as %s" % 'qrels')
 

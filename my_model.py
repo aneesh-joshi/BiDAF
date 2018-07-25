@@ -11,7 +11,7 @@ from sklearn.preprocessing import normalize
 from gensim import utils
 from collections import Iterable
 
-from keras.layers import Input, Embedding, Dense, Concatenate, TimeDistributed, LSTM, Bidirectional, Lambda
+from keras.layers import Input, Embedding, Dense, Concatenate, TimeDistributed, LSTM, Bidirectional, Lambda, Activation
 from keras.models import Model
 import keras.backend as K
 from custom_layers import Highway, MatrixAttention, MaskedSoftmax, WeightedSum, RepeatLike, Max, ComplexConcat
@@ -845,7 +845,7 @@ class DRMM_TKS(utils.SaveLoad):
 
 
         question_embedding = embedding_layer(question_input)  # (None, num_question_words, embedding_dim)
-        passage_embedding = embedding_layer(passage_input)  # (None, num_passage_words*max_passage_sents, embedding_dim)
+        passage_embedding = embedding_layer(passage_input)  # (None, max_passage_words, embedding_dim)
 
         # masking_layer = Masking(mask_value=69)
         # question_embedding = masking_layer(question_embedding)
@@ -878,7 +878,7 @@ class DRMM_TKS(utils.SaveLoad):
 
         # Shape: (batch_size, num_passage_words, num_question_words), normalized over question
         # words for each passage word.
-        passage_question_attention = MaskedSoftmax()(passage_question_similarity)
+        passage_question_attention = Activation('softmax')(passage_question_similarity)
         # Shape: (batch_size, num_passage_words, embedding_dim * 2)
         weighted_sum_layer = WeightedSum(name="passage_question_vectors", use_masking=False)
         passage_question_vectors = weighted_sum_layer([encoded_question, passage_question_attention])
@@ -888,7 +888,7 @@ class DRMM_TKS(utils.SaveLoad):
         # Shape: (batch_size, num_passage_words)
         question_passage_similarity = Max(axis=-1)(passage_question_similarity)
         # Shape: (batch_size, num_passage_words)
-        question_passage_attention = MaskedSoftmax()(question_passage_similarity)
+        question_passage_attention = Activation('softmax')(question_passage_similarity)
         # Shape: (batch_size, embedding_dim * 2)
         weighted_sum_layer = WeightedSum(name="question_passage_vector", use_masking=False)
         question_passage_vector = weighted_sum_layer([encoded_passage, question_passage_attention])

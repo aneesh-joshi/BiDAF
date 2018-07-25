@@ -79,20 +79,6 @@ class MatrixAttention(MaskedLayer):
         self.trainable_weights = self.similarity_function.initialize_weights(tensor_1_dim, tensor_2_dim)
         super(MatrixAttention, self).build(input_shape)
 
-    @overrides
-    def compute_mask(self, inputs, mask=None):
-        # pylint: disable=unused-argument
-        mask_1, mask_2 = mask
-        if mask_1 is None and mask_2 is None:
-            return None
-        if mask_1 is None:
-            mask_1 = K.ones_like(K.sum(inputs[0], axis=-1))
-        if mask_2 is None:
-            mask_2 = K.ones_like(K.sum(inputs[1], axis=-1))
-        # Theano can't do batch_dot on ints, so we need to cast to float and then back.
-        mask_1 = K.cast(K.expand_dims(mask_1, axis=2), 'float32')
-        mask_2 = K.cast(K.expand_dims(mask_2, axis=1), 'float32')
-        return K.cast(K.batch_dot(mask_1, mask_2), 'uint8')
 
     @overrides
     def compute_output_shape(self, input_shape):
@@ -306,10 +292,7 @@ class RepeatLike(MaskedLayer):
 
     @overrides
     def compute_mask(self, inputs, mask=None):
-        # pylint: disable=unused-argument
-        if mask is None or mask[0] is None:
-            return None
-        return self.__repeat_tensor(mask[0], inputs[1])
+        return None
 
     @overrides
     def compute_output_shape(self, input_shape):
@@ -453,7 +436,7 @@ class ComplexConcat(MaskedLayer):
     @overrides
     def compute_mask(self, inputs, mask=None):
         # pylint: disable=unused-argument
-        return mask[0]
+        return None
 
     @overrides
     def compute_output_shape(self, input_shape):

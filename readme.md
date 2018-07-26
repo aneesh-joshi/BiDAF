@@ -26,6 +26,35 @@ The above script will run the bidaf model on SQUAD-T and evaluate it with WikiQA
 - The model is defined in the function `_get_keras_model` in `bidaf.py`
 - The training is done from the function `train` in `bidaf.py`
 
+## General Explanation of what's going on
+The model takes in a query and a passage.
+The passage is made up of a sentences.
+The model mostly treats the passage as a passage except when it comes to predicting, when it predicts on a per sentence basis.
+
+While giving inputs, we give:
+
+
+`(batch_size, max_query_words)` as the query.
+Example:
+`[['Hello', 'there'], ['I', 'am', 'Groot']] --PAD and INDEX--> [[12, 54, 101, 101, 101], [64, 23, 233, 101, 101]]  (2,5)`
+
+
+`(batch_size, max_passage_words)` as the passage.
+Here `max_passage_words = max_number_of_sents_per_question * max_length of a sentence`
+
+So, every question will have a number of sentence as possible inputs. We pad each sentence to the same length.
+We get: `(batch_size, max_sentences_per_query, max_length_of_each_sentence)`
+
+Then we reshape the aboce to be just `(batch_size, max_sentences_per_query * max_length_of_each_sentence)`
+
+So one sample may look like
+`["This", "is", "the", "first", "sentence", "PAD", "PAD", 
+  "The", "second", "one", "PAD", "PAD", "PAD", "PAD", 
+  "PAD", "PAD", "PAD", "PAD", "PAD", "PAD", "PAD"]` # we need 3 sentences for the passage but have onlt 2, so we make an empty padding of the last one.
+
+When we predict, we will reshape it to be on a per sentence basis again and predict from there.
+
+
 
 ## Disclaimer
 Code has been reused from old DRMM TKS code. So docstrings are faulty. The old code is only responsible for word indexing, etc.

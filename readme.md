@@ -48,9 +48,11 @@ We get: `(batch_size, max_sentences_per_query, max_length_of_each_sentence)`
 Then we reshape the aboce to be just `(batch_size, max_sentences_per_query * max_length_of_each_sentence)`
 
 So one sample may look like
-`["This", "is", "the", "first", "sentence", "PAD", "PAD", 
+```
+["This", "is", "the", "first", "sentence", "PAD", "PAD", 
   "The", "second", "one", "PAD", "PAD", "PAD", "PAD", 
-  "PAD", "PAD", "PAD", "PAD", "PAD", "PAD", "PAD"]` # we need 3 sentences for the passage but have onlt 2, so we make an empty padding of the last one.
+  "PAD", "PAD", "PAD", "PAD", "PAD", "PAD", "PAD"] # we need 3 sentences for the passage but have onlt 2, so we make an empty padding of the last one.
+```
 
 When we predict, we will reshape it to be on a per sentence basis again and predict from there.
 

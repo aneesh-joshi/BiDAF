@@ -188,15 +188,18 @@ if __name__ == '__main__':
 
     print('max query, max number of docs per query and max number of docs')
     print(max(q_lens), max(doc_lens), max(d_lens))
+    # 33 29 230
+
     import numpy as np
     q_lens = np.array(q_lens)
     d_lens = np.array(d_lens)
     doc_lens = np.array(doc_lens)
     print('Average query, average number of docs per query and average number of docs')
     print(np.mean(q_lens), np.mean(doc_lens), np.mean(d_lens))
+    # 10.405203405865658 5.105676442762536 24.902959215817074
 
     kv_model = api.load('glove-wiki-gigaword-50')
-    model = DRMM_TKS(q_iterable, d_iterable, l_iterable, kv_model, text_maxlen=51, unk_handle_method='zero', epochs=3, batch_size=20)
+    model = BiDAF(q_iterable, d_iterable, l_iterable, kv_model, text_maxlen=51, unk_handle_method='zero', epochs=3, batch_size=20)
 
     # Example of how prediction works
     print('Hello there result: ', model.tiny_predict('Hello there', 'general kenobi'))

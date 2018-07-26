@@ -3,6 +3,7 @@ from keras.models import Model
 import keras.backend as K
 from custom_layers import Highway, MatrixAttention, MaskedSoftmax, WeightedSum, RepeatLike, Max, ComplexConcat
 import numpy as np
+import tensorflow as tf
 
 num_question_words = 4
 num_passage_words = 5
@@ -65,8 +66,8 @@ for i in range(num_highway_layers):
     passage_embedding = passage_layer(passage_embedding)
 
 
-passage_bidir_encoder = TimeDistributed(Bidirectional(LSTM(n_encoder_hidden_nodes, return_sequences=True,
-                                                           name='PassageBidirEncoder'), merge_mode='concat'))
+passage_bidir_encoder = Bidirectional(LSTM(n_encoder_hidden_nodes, return_sequences=True,
+                                                           name='PassageBidirEncoder'), merge_mode='concat')
 # question_bidir_encoder = Bidirectional(LSTM(n_encoder_hidden_nodes, return_sequences=True, name='QuestionBidirEncoder'), merge_mode='concat')
 
 encoded_passage = passage_bidir_encoder(passage_embedding)
@@ -95,7 +96,9 @@ question_passage_similarity = Max(axis=-1)(passage_question_similarity)
 question_passage_attention = MaskedSoftmax()(question_passage_similarity)
 # Shape: (batch_size, embedding_dim * 2)
 weighted_sum_layer = WeightedSum(name="question_passage_vector", use_masking=False)
-question_passage_vector = weighted_sum_layer([encoded_passage, question_passage_attention])
+# question_passage_vector = weighted_sum_layer([encoded_passage, question_passage_attention])
+question_passage_vector = Lambda(lambda x: K.sum(K.expand_dims(x[0], axis=-1) * x[1], -2)) ([question_passage_attention, encoded_passage])
+print("((((((((((((((((((((((((((((((((((((", question_passage_vector._keras_shape)
 
 # Then he repeats this question/passage vector for every word in the passage, and uses it
 # as an additional input to the hidden layers above.

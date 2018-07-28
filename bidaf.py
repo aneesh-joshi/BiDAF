@@ -5,7 +5,7 @@ from numpy import random as np_random
 from gensim.models import KeyedVectors
 from collections import Counter
 from custom_losses import rank_hinge_loss
-
+import tensorflow as tf
 from evaluation_metrics import mapk, mean_ndcg
 from sklearn.preprocessing import normalize
 from gensim import utils
@@ -512,9 +512,9 @@ class BiDAF(utils.SaveLoad):
         if self.first_train:
             # The settings below should be set only once
             self.model = self._get_keras_model()
-            from keras.optimizers import Adadelta
+            #from keras.optimizers import Adadelta
 
-            self.model.compile(optimizer=Adadelta(lr=0.5, decay=0.999), loss='categorical_crossentropy')
+            self.model.compile(optimizer='adam', loss='categorical_crossentropy')
 
             # optimizer = 'adam'
             # optimizer = 'adadelta'
@@ -825,7 +825,7 @@ class BiDAF(utils.SaveLoad):
 
     def _get_keras_model(self, embed_trainable=False, dropout_rate=0.5, hidden_sizes=[100, 1]):
 
-        num_question_words = self.text_maxlen
+        max_question_words = self.text_maxlen
         num_passage_words = self.text_maxlen
         max_passage_sents = self.max_passage_sents
         num_highway_layers = 2
@@ -835,21 +835,15 @@ class BiDAF(utils.SaveLoad):
         n_encoder_hidden_nodes = 100
         max_passage_words = num_passage_words*max_passage_sents
 
-
-
-        question_input = Input(shape=(num_question_words,), dtype='int32', name="question_input")
+        question_input = Input(shape=(max_question_words,), dtype='int32', name="question_input")
         passage_input = Input(shape=(max_passage_words,), dtype='int32', name="passage_input")
 
-        embedding_layer = Embedding(self.embedding_matrix.shape[0], self.embedding_dim,
+        #embedding_layer = Embedding(input_dim=70, output_dim=embedding_dim)
+        embedding_layer = Embedding(self.embedding_matrix.shape[0], self.embedding_matrix.shape[1],
                               weights=[self.embedding_matrix], trainable=embed_trainable)
 
-
-        question_embedding = embedding_layer(question_input)  # (None, num_question_words, embedding_dim)
-        passage_embedding = embedding_layer(passage_input)  # (None, max_passage_words, embedding_dim)
-
-        # masking_layer = Masking(mask_value=69)
-        # question_embedding = masking_layer(question_embedding)
-        # passage_embedding = masking_layer(passage_embedding)
+        question_embedding = embedding_layer(question_input)  # (None, max_question_words, embedding_dim)
+        passage_embedding = embedding_layer(passage_input)  # (None, max_passage_words*max_passage_sents, embedding_dim)
 
         for i in range(num_highway_layers):
             highway_layer = Highway(activation=highway_activation, name='highway_{}'.format(i))
@@ -863,67 +857,47 @@ class BiDAF(utils.SaveLoad):
 
         passage_bidir_encoder = Bidirectional(LSTM(n_encoder_hidden_nodes, return_sequences=True,
                                                                    name='PassageBidirEncoder'), merge_mode='concat')
-    
 
         encoded_passage = passage_bidir_encoder(passage_embedding)
         encoded_question = passage_bidir_encoder(question_embedding)
+        tiled_passage = Lambda(lambda x: tf.tile(tf.expand_dims(x, 2), [1, 1, max_question_words, 1]))(encoded_passage)
+        tiled_question = Lambda(lambda x: tf.tile(tf.expand_dims(x, 1), [1, max_passage_words, 1, 1]))(encoded_question)
+
+        # (batch_size, max_passage_sents, max_question_words, 2*n_encoder_hidden_nodes)
+        a_elmwise_mul_b = Lambda(lambda x:tf.multiply(x[0], x[1]))([tiled_passage, tiled_question])
+
+        # (batch_size, max_passage_sents, max_question_words, 6*n_encoder_hidden_nodes)
+        cat_data = Concatenate()([tiled_passage, tiled_question, a_elmwise_mul_b])
+
+        S = Dense(1)(cat_data)
+        S = Lambda(lambda x: K.squeeze(x, -1))(S)  # (batch_size, max_passage_sents, max_question_words)
+
+        S = Activation('softmax')(S)
+
+        c2q = Lambda(lambda x: tf.matmul(x[0], x[1]))([S, encoded_question]) # (N, T, 2d) = bmm( (N, T, J), (N, J, 2d) )
+
+        # Query2Context
+        # b: attention weights on the context
+        b = Lambda(lambda x: tf.nn.softmax(K.max(x, 2), dim=-1), name='b')(S) # (N, T)
+
+        q2c = Lambda(lambda x:tf.matmul(tf.expand_dims(x[0], 1), x[1]))([b, encoded_passage]) # (N, 1, 2d) = bmm( (N, 1, T), (N, T, 2d) )
+        q2c = Lambda(lambda x: tf.tile(x, [1, max_passage_words, 1]))(q2c) # (N, T, 2d), tiled T times
 
 
-        # PART 2:
-        # Now we compute a similarity between the passage words and the question words, and
-        # normalize the matrix in a couple of different ways for input into some more layers.
-        matrix_attention_layer = MatrixAttention(name='passage_question_similarity')
-        # Shape: (batch_size, num_passage_words, num_question_words)
-        passage_question_similarity = matrix_attention_layer([encoded_passage, encoded_question])
+        # G: query aware representation of each context word
+        G = Lambda(lambda x: tf.concat([x[0], x[1], tf.multiply(x[0], x[1]), tf.multiply(x[0], x[2])], axis=2)) ([encoded_passage, c2q, q2c]) # (N, T, 8d)
 
-        # Shape: (batch_size, num_passage_words, num_question_words), normalized over question
-        # words for each passage word.
-        passage_question_attention = Activation('softmax')(passage_question_similarity)
-        # Shape: (batch_size, num_passage_words, embedding_dim * 2)
-        weighted_sum_layer = WeightedSum(name="passage_question_vectors", use_masking=False)
-        passage_question_vectors = weighted_sum_layer([encoded_question, passage_question_attention])
 
-        # Min's paper finds, for each document word, the most similar question word to it, and
-        # computes a single attention over the whole document using these max similarities.
-        # Shape: (batch_size, num_passage_words)
-        question_passage_similarity = Max(axis=-1)(passage_question_similarity)
-        # Shape: (batch_size, num_passage_words)
-        question_passage_attention = Activation('softmax')(question_passage_similarity)
-        # Shape: (batch_size, embedding_dim * 2)
-        weighted_sum_layer = WeightedSum(name="question_passage_vector", use_masking=False)
-        question_passage_vector = weighted_sum_layer([encoded_passage, question_passage_attention])
+        modelled_passage = Bidirectional(LSTM(n_encoder_hidden_nodes, return_sequences=True))(G)
+        modelled_passage = Bidirectional(LSTM(n_encoder_hidden_nodes, return_sequences=True))(modelled_passage)
 
-        # Then he repeats this question/passage vector for every word in the passage, and uses it
-        # as an additional input to the hidden layers above.
-        repeat_layer = RepeatLike(axis=1, copy_from_axis=1)
-        # Shape: (batch_size, num_passage_words, embedding_dim * 2)
-        tiled_question_passage_vector = repeat_layer([question_passage_vector, encoded_passage])
+        # Reshape it back to be at the sentence level
+        reshaped_passage = Reshape((max_passage_sents, num_passage_words, n_encoder_hidden_nodes*2))(modelled_passage)
+        g2 = Lambda(lambda x: tf.reduce_sum(x, 2))(reshaped_passage)
+        # g2_ = Reshape([n_encoder_hidden_nodes*2])(g2)
+        pred = Dense(2, activation='softmax')(g2)
 
-        # Shape: (batch_size, num_passage_words, embedding_dim * 8)
-        complex_concat_layer = ComplexConcat(combination='1,2,1*2,1*3', name='final_merged_passage')
-        final_merged_passage = complex_concat_layer([encoded_passage,
-                                                     passage_question_vectors,
-                                                     tiled_question_passage_vector])
-
-        # PART 3:
-        # Having computed a combined representation of the document that includes attended question
-        # vectors, we'll pass this through a few more bi-directional encoder layers, then predict
-        # the span_begin word.  Hard to find a good name for this; Min calls this part of the
-        # network the "modeling layer", so we'll call this the `modeled_passage`.
-        modeled_passage = final_merged_passage
-        for i in range(num_hidden_ending_bidir_layers):
-            hidden_layer = Bidirectional(LSTM(n_encoder_hidden_nodes, return_sequences=True, name='EndingBiDirEncoder_{}'.format(i)), merge_mode='concat')
-            modeled_passage = hidden_layer(modeled_passage)
-
-        # To predict the span word, we pass the merged representation through a Dense layer without
-        # output size 1 (basically a dot product of a vector of weights and the passage vectors),
-        # then do a softmax to get a position.
-        span_begin_input = Concatenate()([final_merged_passage, modeled_passage])
-        span_begin_input = Reshape((max_passage_sents, num_passage_words, -1))(span_begin_input)
-        maxxed = Max(axis=-1)(span_begin_input)
-        prediction = Dense(2, activation='softmax')(maxxed)
-
-        model = Model(inputs=[question_input, passage_input], outputs=[prediction])
+        model = Model(inputs=[question_input, passage_input], outputs=[pred])
         return model
 
     def tiny_predict(self, q, d):

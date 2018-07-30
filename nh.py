@@ -19,13 +19,13 @@ from numpy import random as np_random
 logger = logging.getLogger(__name__)
 
 # PARMATERS -------------------------------------------------------
-max_passage_words = 70
-max_passage_sents = 30
+max_passage_words = 100
+max_passage_sents = 1
 total_passage_words = max_passage_sents * max_passage_words
-max_question_words = 25
-num_word_embedding_dims = 50
+max_question_words = 40
+num_word_embedding_dims = 100
 
-batch_size = 5
+batch_size = 50
 unk_handle_method = 'zero'
 pad_handle_method = 'zero'
 
@@ -35,9 +35,9 @@ from keras import optimizers
 #sgd = optimizers.SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True)
 ada = optimizers.Adadelta(lr=0.5)
 loss = 'categorical_crossentropy'
-optimizer = 'adadelta'
-steps_per_epoch = 1
-n_epochs = 1
+optimizer = ada
+steps_per_epoch = 1087
+n_epochs = 5
 n_encoder_hidden_nodes = 200
 
 import string
@@ -45,7 +45,7 @@ char2index = {}
 for i, char in enumerate(string.printable, start=1):
     char2index[char] = i
 
-max_word_charlen = 20
+max_word_charlen = 25
 char_pad_index = 0
 
 pretrain = 'SQUAD'
@@ -103,6 +103,9 @@ def _char_word(word):
     l_word = list(word)
     l_word = [char2index[l] for l in l_word]
     l_word = l_word + (max_word_charlen - len(l_word))*[char_pad_index]
+    if len(l_word) > max_word_charlen:
+        logger.info('\n\n\n word is really long %d \n\n\n', len(l_word))
+        l_word = l_word[:max_word_charlen]
     return l_word
 
 def _make_sentence_indexed_padded_charred(sentence, max_len):
@@ -119,7 +122,6 @@ def _make_sentence_indexed_padded_charred(sentence, max_len):
     """
     assert type(sentence) == list
     
-    print(sentence)
     str_sent = sentence
     sentence = [_char_word(word) for word in sentence]
     while len(sentence) < max_len:
@@ -186,10 +188,9 @@ def train_batch_generator(q_iterable, d_iterable, l_iterable, batch_size):
                 batch_q, batch_d, batch_l = [], [], []
                 cbatch_q, cbatch_d, cbatch_l = [], [], []
 
-            train_qs.append(_make_sentence_indexed_padded(q, max_question_words))
-            ctrain_qs.append(_make_sentence_indexed_padded_charred(q, max_question_words))
-
             for d, l in zip(docs, labels):
+                train_qs.append(_make_sentence_indexed_padded(q, max_question_words))
+                ctrain_qs.append(_make_sentence_indexed_padded_charred(q, max_question_words))
                 train_ds.append(_make_sentence_indexed_padded(d, max_passage_words))
                 ctrain_ds.append(_make_sentence_indexed_padded_charred(d, max_passage_words))
                 train_ls.append(to_categorical(l, 2))
@@ -214,6 +215,49 @@ def train_batch_generator(q_iterable, d_iterable, l_iterable, batch_size):
             train_qs, train_ds, train_ls = [], [], []
             ctrain_qs, ctrain_ds, ctrain_ls = [], [], []
         logger.info('One epoch worth of samples are exhausted')
+
+def _get_full_batch_iter(pair_list, batch_size):
+    X1, X2, y = [], [], []
+    cX1, cX2 = [], []
+    batch_size = batch_size/2
+    while True:
+        for i, (query, pos_doc, neg_doc, cquery, cpos_doc, cneg_doc) in enumerate(pair_list):
+            X1.append(query)
+            cX1.append(cquery)
+
+            X2.append(pos_doc)
+            cX2.append(cpos_doc)
+
+            y.append([0, 1])
+
+            X1.append(query)
+            cX1.append(cquery)
+
+            X2.append(neg_doc)
+            cX2.append(cneg_doc)
+
+            y.append([1, 0])
+
+            if i % batch_size == 0 and i != 0:
+                yield ({'question_input': np.array(X1), 'passage_input': np.array(X2),
+                        'char_question_input': np.array(cX1), 'char_passage_input': np.array(cX2)}, np.array(y))
+                X1, X2, y = [], [], []
+                cX1, cX2 = [], []
+
+
+def _get_pair_list(queries, docs, labels):
+    while True:
+        for q, doc, label in zip(queries, docs, labels):
+            doc, label = (list(t) for t in zip(*sorted(zip(doc, label), reverse=True)))
+            for item in zip(doc, label):
+                if item[1] == 1:
+                    for new_item in zip(doc, label):
+                        if new_item[1] == 0:
+                            yield(_make_sentence_indexed_padded(q, max_question_words), _make_sentence_indexed_padded(item[0], max_passage_words), _make_sentence_indexed_padded(new_item[0], max_passage_words),
+                                  _make_sentence_indexed_padded_charred(q, max_question_words), _make_sentence_indexed_padded_charred(item[0], max_passage_words), _make_sentence_indexed_padded_charred(new_item[0], max_passage_words),)
+
+
+
 
 def _string2numeric_hash(text):
     "Gets a numeric hash for a given string"
@@ -367,11 +411,11 @@ def get_model(max_passage_sents, max_passage_words, max_question_words, embeddin
     modelled_passage = Bidirectional(LSTM(n_encoder_hidden_nodes, return_sequences=True))(modelled_passage)
 
     # Reshape it back to be at the sentence level
-    reshaped_passage = Reshape((max_passage_sents, max_passage_words, n_encoder_hidden_nodes*2))(modelled_passage)
+    #reshaped_passage = Reshape((max_passage_sents, max_passage_words, n_encoder_hidden_nodes*2))(modelled_passage)
 
-    g2 = Lambda(lambda x: tf.reduce_max(x, 2))(reshaped_passage)
+    g2 = Lambda(lambda x: tf.reduce_max(x, 1))(modelled_passage)
 
-    pred = TimeDistributed(Dense(2, activation='softmax'))(g2)
+    pred = Dense(2, activation='softmax')(g2)
 
     model = Model(inputs=[question_input, passage_input, char_question_input, char_passage_input], outputs=[pred])
     return model
@@ -381,11 +425,13 @@ model = get_model(max_passage_sents, max_passage_words, max_question_words, embe
 model.summary()
 model.compile(loss=loss, optimizer=optimizer)
 
-train_generator = train_batch_generator(q_iterable, d_iterable, l_iterable, batch_size)
+#train_generator = train_batch_generator(q_iterable, d_iterable, l_iterable, batch_size)
+train_generator = _get_full_batch_iter(_get_pair_list(q_iterable, d_iterable, l_iterable), batch_size)
 model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch, epochs=n_epochs)
 
 print("Training on WikiQA now")
-train_generator = train_batch_generator(q_train_iterable, d_train_iterable, l_train_iterable, batch_size)
+#train_generator = train_batch_generator(q_train_iterable, d_train_iterable, l_train_iterable, batch_size)
+train_generator = _get_full_batch_iter(_get_pair_list(q_train_iterable, d_train_iterable, l_train_iterable), batch_size)
 model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch, epochs=n_epochs)
 
 # Evaluation
@@ -478,12 +524,13 @@ def batch_tiny_predict(model, q, doc):
     q : str
     d : list of str
     """
-    q = [_make_sentence_indexed_padded(q, max_question_words)]
+    
     cq = [_make_sentence_indexed_padded_charred(q, max_question_words)]
-    train_docs, c_train_docs = [], []
+    q = [_make_sentence_indexed_padded(q, max_question_words)]
+    train_docs, ctrain_docs = [], []
     for d in doc:
         train_docs.append(_make_sentence_indexed_padded(d, max_passage_words))
-        c_train_docs.append(_make_sentence_indexed_padded_charred(d, max_passage_words))
+        ctrain_docs.append(_make_sentence_indexed_padded_charred(d, max_passage_words))
 
     d_len = len(train_docs)
 
@@ -494,16 +541,46 @@ def batch_tiny_predict(model, q, doc):
     q = np.array(q).reshape((1, max_question_words))
     cq = np.array(cq).reshape((1, max_question_words, max_word_charlen))
     train_docs = np.array(train_docs).reshape((1, total_passage_words))
-    ctrain_docs = np.array(ctrain_docs).reshape((1, total_passage_words, max_word_charlen))
-
+    try:
+        ctrain_docs = np.array(ctrain_docs).reshape((1, total_passage_words, max_word_charlen))
+    except:
+        print(ctrain_docs)
+        exit()
     preds = model.predict(x={'question_input':q,  'passage_input':train_docs, 'char_passage_input': ctrain_docs, 'char_question_input': cq})
 
     return preds[0][:d_len]
 
+def new_batch_tiny_predict(model, q, doc):
+
+    wq, cq = [], []
+    train_docs, ctrain_docs = [], []
+
+    num_docs = len(doc)
+
+    for d in doc:
+        cq.append(_make_sentence_indexed_padded_charred(q, max_question_words))
+        wq.append(_make_sentence_indexed_padded(q, max_question_words))
+        train_docs.append(_make_sentence_indexed_padded(d, max_passage_words))
+        ctrain_docs.append(_make_sentence_indexed_padded_charred(d, max_passage_words))
+
+    wq = np.array(wq).reshape((num_docs, max_question_words))
+    cq = np.array(cq).reshape((num_docs, max_question_words, max_word_charlen))
+
+    train_docs = np.array(train_docs).reshape((num_docs, total_passage_words))
+    ctrain_docs = np.array(ctrain_docs).reshape((num_docs, total_passage_words, max_word_charlen))
+
+    preds = model.predict(x={'question_input':wq,  'passage_input':train_docs, 'char_passage_input': ctrain_docs, 'char_question_input': cq})
+
+    print(preds)
+
+    return preds
+
+i=0
 with open('jpred', 'w') as f:
     for q, doc, labels, q_id, d_ids in zip(queries, doc_group, label_group, query_ids, doc_id_group):
-        batch_score = batch_tiny_predict(model, q, doc)
+        batch_score = new_batch_tiny_predict(model, q, doc)
         for d, l, d_id, bscore in zip(doc, labels, d_ids, batch_score):
+            #print(bscore)
             my_score = bscore[1]
             print(i, my_score)
             i += 1

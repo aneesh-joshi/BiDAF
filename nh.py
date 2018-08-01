@@ -19,7 +19,7 @@ from numpy import random as np_random
 logger = logging.getLogger(__name__)
 
 # PARMATERS -------------------------------------------------------
-max_passage_words = 100
+max_passage_words = 200
 max_passage_sents = 1
 total_passage_words = max_passage_sents * max_passage_words
 max_question_words = 40
@@ -32,12 +32,12 @@ pad_handle_method = 'zero'
 char_embedding_dim = 100
 
 from keras import optimizers
-#sgd = optimizers.SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True)
+sgd = optimizers.SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True)
 ada = optimizers.Adadelta(lr=0.5)
 loss = 'categorical_crossentropy'
-optimizer = ada
-steps_per_epoch = 1087
-n_epochs = 5
+optimizer = sgd # 'adam'
+steps_per_epoch = 54347 // batch_size
+n_epochs = 10
 n_encoder_hidden_nodes = 200
 
 import string
@@ -426,13 +426,13 @@ model.summary()
 model.compile(loss=loss, optimizer=optimizer)
 
 #train_generator = train_batch_generator(q_iterable, d_iterable, l_iterable, batch_size)
-train_generator = _get_full_batch_iter(_get_pair_list(q_iterable, d_iterable, l_iterable), batch_size)
-model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch, epochs=n_epochs)
+#train_generator = _get_full_batch_iter(_get_pair_list(q_iterable, d_iterable, l_iterable), batch_size)
+#model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch, epochs=n_epochs)
 
 print("Training on WikiQA now")
 #train_generator = train_batch_generator(q_train_iterable, d_train_iterable, l_train_iterable, batch_size)
 train_generator = _get_full_batch_iter(_get_pair_list(q_train_iterable, d_train_iterable, l_train_iterable), batch_size)
-model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch, epochs=n_epochs)
+model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch, epochs=1)
 
 # Evaluation
 
